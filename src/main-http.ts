@@ -20,6 +20,11 @@ import { isIP } from 'node:net'
  *   loopback defaults) trusted in the Host and Origin headers for DNS-rebinding
  *   protection. Required when binding to 0.0.0.0 so LAN clients' hostnames are
  *   accepted. IPv6 entries must be bracketed, e.g. [2001:db8::1].
+ * - MCP_BEARER_TOKEN: Optional. When set, /mcp requests must carry
+ *   `Authorization: Bearer <token>` or they are rejected with 401. Strongly
+ *   recommended whenever the server is reachable from other hosts, since
+ *   requests otherwise run with the operator's TODOIST_API_KEY unauthenticated.
+ *   /health stays unguarded for deployment probes.
  *
  * The /mcp endpoint validates the Host and Origin headers against this allowlist
  * before any request handling (DNS-rebinding protection). /health is exempt so
@@ -63,18 +68,24 @@ function main() {
     }
 
     const allowedHosts = buildAllowedHosts(HOST, process.env.ALLOWED_HOSTS)
-    const app = createHttpApp({ todoistApiKey, baseUrl, allowedHosts })
+    const bearerToken = process.env.MCP_BEARER_TOKEN?.trim() || undefined
+    const app = createHttpApp({ todoistApiKey, baseUrl, allowedHosts, bearerToken })
 
     app.listen(PORT, LISTEN_HOST, () => {
         const displayHost = formatUrlHost(LISTEN_HOST)
         console.error(`Todoist MCP HTTP Server started on ${formatListenHost(LISTEN_HOST)}:${PORT}`)
         console.error(`MCP endpoint: http://${displayHost}:${PORT}/mcp`)
         console.error(`Health check: http://${displayHost}:${PORT}/health`)
-        if (!isLoopbackHost(LISTEN_HOST)) {
+        console.error(
+            bearerToken
+                ? 'Bearer token auth: enabled (requests to /mcp require Authorization: Bearer <token>)'
+                : 'Bearer token auth: disabled (set MCP_BEARER_TOKEN to require an Authorization: Bearer token)',
+        )
+        if (!isLoopbackHost(LISTEN_HOST) && !bearerToken) {
             console.error(
-                'Warning: todoist-mcp-http is reachable from other hosts. ' +
-                    'Set ALLOWED_HOSTS to the hostnames clients use and protect this service with ' +
-                    'trusted network/auth controls because requests run with TODOIST_API_KEY.',
+                'Warning: todoist-mcp-http is reachable from other hosts without authentication. ' +
+                    'Set MCP_BEARER_TOKEN and ALLOWED_HOSTS to the hostnames clients use and protect ' +
+                    'this service with trusted network/auth controls because requests run with TODOIST_API_KEY.',
             )
         }
     })

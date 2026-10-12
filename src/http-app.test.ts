@@ -18,8 +18,12 @@ type Server = ReturnType<typeof http.createServer>
 
 let server: Server
 
-function startApp(): Promise<number> {
-    const app = createHttpApp({ todoistApiKey: 'test-key', allowedHosts: DEFAULT_ALLOWED_HOSTS })
+function startApp(bearerToken?: string): Promise<number> {
+    const app = createHttpApp({
+        todoistApiKey: 'test-key',
+        allowedHosts: DEFAULT_ALLOWED_HOSTS,
+        bearerToken,
+    })
     return new Promise((resolve) => {
         server = app.listen(0, '127.0.0.1', () => {
             resolve((server.address() as AddressInfo).port)
@@ -159,5 +163,72 @@ describe('createHttpApp middleware chain', () => {
 
         expect(res.status).toBe(200)
         expect(res.body).toContain('event: message')
+    })
+
+    describe('bearer token auth (MCP_BEARER_TOKEN)', () => {
+        it('rejects /mcp without a bearer token with 401 before token validation', async () => {
+            const port = await startApp('secret-token')
+            const res = await request(port, {
+                method: 'POST',
+                path: '/mcp',
+                headers: { ...JSON_HEADERS, host: `127.0.0.1:${port}` },
+                body: FULL_INIT_BODY,
+            })
+
+            expect(res.status).toBe(401)
+            expect(JSON.parse(res.body)).toEqual({
+                error: 'invalid_token',
+                error_description: 'A valid Authorization: Bearer token is required',
+            })
+            expect(mockValidate).not.toHaveBeenCalled()
+        })
+
+        it('rejects /mcp with a wrong bearer token with 401', async () => {
+            const port = await startApp('secret-token')
+            const res = await request(port, {
+                method: 'POST',
+                path: '/mcp',
+                headers: {
+                    ...JSON_HEADERS,
+                    host: `127.0.0.1:${port}`,
+                    authorization: 'Bearer wrong-token',
+                },
+                body: FULL_INIT_BODY,
+            })
+
+            expect(res.status).toBe(401)
+            expect(mockValidate).not.toHaveBeenCalled()
+        })
+
+        it('passes /mcp with the correct bearer token through to token validation', async () => {
+            // Bad Todoist key (mocked) so the 401 proves the bearer check passed
+            // and the request reached the token middleware.
+            const port = await startApp('secret-token')
+            const res = await request(port, {
+                method: 'POST',
+                path: '/mcp',
+                headers: {
+                    ...JSON_HEADERS,
+                    host: `127.0.0.1:${port}`,
+                    authorization: 'Bearer secret-token',
+                },
+                body: FULL_INIT_BODY,
+            })
+
+            expect(res.status).toBe(401)
+            expect(mockValidate).toHaveBeenCalledOnce()
+        })
+
+        it('keeps /health unguarded when a bearer token is configured', async () => {
+            const port = await startApp('secret-token')
+            const res = await request(port, {
+                method: 'GET',
+                path: '/health',
+                headers: { host: `127.0.0.1:${port}` },
+            })
+
+            expect(res.status).toBe(200)
+            expect(JSON.parse(res.body)).toEqual({ status: 'ok' })
+        })
     })
 })

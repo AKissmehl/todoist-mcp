@@ -1,6 +1,13 @@
 import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node'
-import express, { type Express, type NextFunction, type Request, type Response } from 'express'
+import express, {
+    type Express,
+    type NextFunction,
+    type Request,
+    type RequestHandler,
+    type Response,
+} from 'express'
 import { getMcpServer } from './mcp-server.js'
+import { requireBearerToken } from './middleware/require-bearer-token.js'
 import { requireTrustedHost } from './middleware/require-trusted-host.js'
 import { requireValidTodoistToken } from './middleware/require-valid-todoist-token.js'
 
@@ -9,6 +16,12 @@ type CreateHttpAppOptions = {
     baseUrl?: string
     /** Hostnames trusted in the Host/Origin headers (DNS-rebinding protection). */
     allowedHosts: string[]
+    /**
+     * When set, `/mcp` requests must carry `Authorization: Bearer <token>`.
+     * Without it anyone who knows the URL can run MCP tools with the
+     * operator's `TODOIST_API_KEY`.
+     */
+    bearerToken?: string
 }
 
 /**
@@ -67,9 +80,15 @@ function normalizeMcpAccept(req: Request, _res: Response, next: NextFunction): v
  * target's private IP in the Host header — keep working; it exposes no account
  * data.
  */
-function createHttpApp({ todoistApiKey, baseUrl, allowedHosts }: CreateHttpAppOptions): Express {
+function createHttpApp({
+    todoistApiKey,
+    baseUrl,
+    allowedHosts,
+    bearerToken,
+}: CreateHttpAppOptions): Express {
     const app = express()
     const trustedHost = requireTrustedHost({ allowedHosts })
+    const bearerTokenGuard = bearerToken ? requireBearerToken({ token: bearerToken }) : undefined
 
     // Health check endpoint (no host guard — see above).
     app.get('/health', (_req: Request, res: Response) => {
@@ -78,14 +97,16 @@ function createHttpApp({ todoistApiKey, baseUrl, allowedHosts }: CreateHttpAppOp
 
     // MCP endpoint - POST for requests.
     // `trustedHost` rejects untrusted Host/Origin with a cheap 403 before the
-    // body is parsed. `normalizeMcpAccept` then patches in the Accept types the
-    // MCP transport requires (clients that omit them otherwise get a 406).
+    // body is parsed. `bearerTokenGuard` (when MCP_BEARER_TOKEN is set)
+    // rejects unauthenticated requests with a 401 before any work is done.
+    // `normalizeMcpAccept` then patches in the Accept types the MCP transport
+    // requires (clients that omit them otherwise get a 406).
     // `requireValidTodoistToken` validates the token so that invalid tokens
     // produce an HTTP 401 (per MCP spec) instead of being swallowed into a 200
     // JSON-RPC response with isError: true.
-    app.post(
-        '/mcp',
+    const postHandlers: RequestHandler[] = [
         trustedHost,
+        ...(bearerTokenGuard ? [bearerTokenGuard] : []),
         normalizeMcpAccept,
         express.json(),
         requireValidTodoistToken({ type: 'static', apiKey: todoistApiKey, baseUrl }),
@@ -110,7 +131,8 @@ function createHttpApp({ todoistApiKey, baseUrl, allowedHosts }: CreateHttpAppOp
                 })
             }
         },
-    )
+    ]
+    app.post('/mcp', ...postHandlers)
 
     // MCP endpoint - GET returns 405 (needed for MCP client compatibility).
     app.get('/mcp', trustedHost, (_req: Request, res: Response) => {
