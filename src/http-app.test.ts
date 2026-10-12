@@ -230,5 +230,31 @@ describe('createHttpApp middleware chain', () => {
             expect(res.status).toBe(200)
             expect(JSON.parse(res.body)).toEqual({ status: 'ok' })
         })
+
+        it('serves an RFC 9728 Protected Resource Metadata document when auth is on', async () => {
+            const port = await startApp('secret-token')
+            const res = await request(port, {
+                method: 'GET',
+                path: '/.well-known/oauth-protected-resource',
+                headers: { host: `127.0.0.1:${port}` },
+            })
+
+            expect(res.status).toBe(200)
+            expect(JSON.parse(res.body)).toEqual({
+                resource: `http://127.0.0.1:${port}/mcp`,
+                bearer_methods_supported: ['header'],
+            })
+        })
+
+        it('serves no Protected Resource Metadata document when auth is off', async () => {
+            const port = await startApp()
+            const res = await request(port, {
+                method: 'GET',
+                path: '/.well-known/oauth-protected-resource',
+                headers: { host: `127.0.0.1:${port}` },
+            })
+
+            expect(res.status).toBe(404)
+        })
     })
 })

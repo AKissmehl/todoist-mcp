@@ -72,6 +72,23 @@ function normalizeMcpAccept(req: Request, _res: Response, next: NextFunction): v
 }
 
 /**
+ * Build the request's base URL (`scheme://host`) for the RFC 9728 Protected
+ * Resource Metadata document and the `resource_metadata` challenge parameter.
+ *
+ * The scheme honours `X-Forwarded-Proto` (set by TLS-terminating proxies such
+ * as Railway's edge), defaulting to `http` for direct connections. Only the
+ * first value is used, matching proxies that append per hop.
+ */
+function requestBaseUrl(req: Request): string {
+    const forwardedProto = Array.isArray(req.headers['x-forwarded-proto'])
+        ? req.headers['x-forwarded-proto'][0]
+        : req.headers['x-forwarded-proto']
+    const proto = forwardedProto?.split(',')[0]?.trim() || 'http'
+    const host = req.headers.host ?? 'localhost'
+    return `${proto}://${host}`
+}
+
+/**
  * Build the Express app for the MCP HTTP server.
  *
  * The DNS-rebinding guard (`requireTrustedHost`) is scoped to the sensitive
@@ -88,12 +105,32 @@ function createHttpApp({
 }: CreateHttpAppOptions): Express {
     const app = express()
     const trustedHost = requireTrustedHost({ allowedHosts })
-    const bearerTokenGuard = bearerToken ? requireBearerToken({ token: bearerToken }) : undefined
+    const bearerTokenGuard = bearerToken
+        ? requireBearerToken({
+              token: bearerToken,
+              resourceMetadataUrl: (req: Request) =>
+                  `${requestBaseUrl(req)}/.well-known/oauth-protected-resource`,
+          })
+        : undefined
 
     // Health check endpoint (no host guard — see above).
     app.get('/health', (_req: Request, res: Response) => {
         res.json({ status: 'ok' })
     })
+
+    // RFC 9728 Protected Resource Metadata, served only when the endpoint is
+    // actually protected (MCP_BEARER_TOKEN set) — the document describes how the
+    // resource is protected, so without auth there is nothing to advertise.
+    // Unguarded like /health: it exposes no account data and clients probe it
+    // with whatever Host they were given.
+    if (bearerToken) {
+        app.get('/.well-known/oauth-protected-resource', (req: Request, res: Response) => {
+            res.json({
+                resource: `${requestBaseUrl(req)}/mcp`,
+                bearer_methods_supported: ['header'],
+            })
+        })
+    }
 
     // MCP endpoint - POST for requests.
     // `trustedHost` rejects untrusted Host/Origin with a cheap 403 before the
