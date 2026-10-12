@@ -74,22 +74,7 @@ describe('requireBearerToken', () => {
         expect(next).toHaveBeenCalledOnce()
     })
 
-    it('advertises the RFC 9728 resource_metadata URL when the option is set', () => {
-        const middleware = requireBearerToken({
-            token: 'secret-token',
-            resourceMetadataUrl: () => 'https://example.com/.well-known/oauth-protected-resource',
-        })
-        const res = createMockRes()
-        middleware(createReq({}), res, next)
-
-        expect(next).not.toHaveBeenCalled()
-        expect(res.set).toHaveBeenCalledWith(
-            'WWW-Authenticate',
-            'Bearer resource_metadata="https://example.com/.well-known/oauth-protected-resource"',
-        )
-    })
-
-    it('sends a plain Bearer challenge when no resource_metadata URL is set', () => {
+    it('sends a plain Bearer challenge when rejecting', () => {
         const middleware = requireBearerToken({ token: 'secret-token' })
         const res = createMockRes()
         middleware(createReq({}), res, next)

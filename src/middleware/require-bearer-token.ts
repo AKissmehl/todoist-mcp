@@ -4,14 +4,6 @@ import type { NextFunction, Request, RequestHandler, Response } from 'express'
 type RequireBearerTokenOptions = {
     /** The exact token clients must send as `Authorization: Bearer <token>`. */
     token: string
-
-    /**
-     * Optional builder for the RFC 9728 `resource_metadata` URL advertised in
-     * the `WWW-Authenticate` header, so clients can discover the Protected
-     * Resource Metadata document. Evaluated per request (the URL depends on
-     * the request's host).
-     */
-    resourceMetadataUrl?: (req: Request) => string
 }
 
 /**
@@ -25,12 +17,8 @@ function tokensMatch(candidate: string, expected: string): boolean {
     return timingSafeEqual(candidateDigest, expectedDigest)
 }
 
-function unauthorized(res: Response, resourceMetadataUrl?: string): void {
-    const challenge =
-        resourceMetadataUrl === undefined
-            ? 'Bearer'
-            : `Bearer resource_metadata="${resourceMetadataUrl}"`
-    res.status(401).set('WWW-Authenticate', challenge).json({
+function unauthorized(res: Response): void {
+    res.status(401).set('WWW-Authenticate', 'Bearer').json({
         error: 'invalid_token',
         error_description: 'A valid Authorization: Bearer token is required',
     })
@@ -63,7 +51,7 @@ function requireBearerToken(options: RequireBearerTokenOptions): RequestHandler 
             candidate === '' ||
             !tokensMatch(candidate, options.token)
         ) {
-            unauthorized(res, options.resourceMetadataUrl?.(req))
+            unauthorized(res)
             return
         }
         next()

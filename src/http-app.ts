@@ -105,13 +105,14 @@ function createHttpApp({
 }: CreateHttpAppOptions): Express {
     const app = express()
     const trustedHost = requireTrustedHost({ allowedHosts })
-    const bearerTokenGuard = bearerToken
-        ? requireBearerToken({
-              token: bearerToken,
-              resourceMetadataUrl: (req: Request) =>
-                  `${requestBaseUrl(req)}/.well-known/oauth-protected-resource`,
-          })
-        : undefined
+    // Plain 'Bearer' challenge, deliberately without an RFC 9728
+    // resource_metadata pointer: clients that follow the pointer (Mistral's
+    // connector) treat any Protected Resource Metadata document as proof of an
+    // OAuth authorization server and then fail fetching
+    // /.well-known/oauth-authorization-server — this server has no OAuth, the
+    // challenge is the whole story. The metadata document itself is still
+    // served below for clients that probe for it directly.
+    const bearerTokenGuard = bearerToken ? requireBearerToken({ token: bearerToken }) : undefined
 
     // Health check endpoint (no host guard — see above).
     app.get('/health', (_req: Request, res: Response) => {
