@@ -122,11 +122,16 @@ function createHttpApp({
     // actually protected (MCP_BEARER_TOKEN set) — the document describes how the
     // resource is protected, so without auth there is nothing to advertise.
     // Unguarded like /health: it exposes no account data and clients probe it
-    // with whatever Host they were given.
+    // with whatever Host they were given. `authorization_servers` is an explicit
+    // empty array: the field is OPTIONAL and omitting it means, per RFC 9728,
+    // that the resource is its own authorization server — clients (Mistral's
+    // connector does) then try to fetch /.well-known/oauth-authorization-server
+    // and fail. Empty says plainly: no OAuth, bring a bearer token.
     if (bearerToken) {
         app.get('/.well-known/oauth-protected-resource', (req: Request, res: Response) => {
             res.json({
                 resource: `${requestBaseUrl(req)}/mcp`,
+                authorization_servers: [],
                 bearer_methods_supported: ['header'],
             })
         })

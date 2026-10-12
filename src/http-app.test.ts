@@ -242,6 +242,7 @@ describe('createHttpApp middleware chain', () => {
             expect(res.status).toBe(200)
             expect(JSON.parse(res.body)).toEqual({
                 resource: `http://127.0.0.1:${port}/mcp`,
+                authorization_servers: [],
                 bearer_methods_supported: ['header'],
             })
         })
