@@ -1,5 +1,5 @@
 import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node'
-import express, { type Express, type Request, type Response } from 'express'
+import express, { type Express, type NextFunction, type Request, type Response } from 'express'
 import { getMcpServer } from './mcp-server.js'
 import { requireTrustedHost } from './middleware/require-trusted-host.js'
 import { requireValidTodoistToken } from './middleware/require-valid-todoist-token.js'
@@ -9,6 +9,53 @@ type CreateHttpAppOptions = {
     baseUrl?: string
     /** Hostnames trusted in the Host/Origin headers (DNS-rebinding protection). */
     allowedHosts: string[]
+}
+
+/**
+ * Middleware that ensures `/mcp` requests advertise both Accept types the
+ * Streamable HTTP transport requires. Spec-compliant clients always send
+ * `Accept: application/json, text/event-stream`; the MCP transport rejects
+ * anything else with 406. Some hosted clients (e.g. Mistral's custom MCP
+ * connector, whose documented probe request omits the header) fail against
+ * that check, so patch the header in rather than fail their initialize.
+ *
+ * Both header representations are patched:
+ * `NodeStreamableHTTPServerTransport` converts requests via
+ * `@hono/node-server`, which reads `req.rawHeaders` (the raw wire pairs), not
+ * the parsed `req.headers` object — patching only the latter is invisible to
+ * the transport.
+ */
+function normalizeMcpAccept(req: Request, _res: Response, next: NextFunction): void {
+    const accept = req.headers.accept ?? ''
+    if (accept.includes('application/json') && accept.includes('text/event-stream')) {
+        next()
+        return
+    }
+
+    const value = 'application/json, text/event-stream'
+    req.headers.accept = value
+    const raw: string[] = []
+    let replaced = false
+    for (let i = 0; i + 1 < req.rawHeaders.length; i += 2) {
+        const name = req.rawHeaders[i]
+        const headerValue = req.rawHeaders[i + 1]
+        if (name === undefined || headerValue === undefined) {
+            continue
+        }
+        if (name.toLowerCase() === 'accept') {
+            if (!replaced) {
+                raw.push(name, value)
+                replaced = true
+            }
+            continue
+        }
+        raw.push(name, headerValue)
+    }
+    if (!replaced) {
+        raw.push('accept', value)
+    }
+    req.rawHeaders = raw
+    next()
 }
 
 /**
@@ -31,12 +78,15 @@ function createHttpApp({ todoistApiKey, baseUrl, allowedHosts }: CreateHttpAppOp
 
     // MCP endpoint - POST for requests.
     // `trustedHost` rejects untrusted Host/Origin with a cheap 403 before the
-    // body is parsed. `requireValidTodoistToken` then validates the token so that
-    // invalid tokens produce an HTTP 401 (per MCP spec) instead of being
-    // swallowed into a 200 JSON-RPC response with isError: true.
+    // body is parsed. `normalizeMcpAccept` then patches in the Accept types the
+    // MCP transport requires (clients that omit them otherwise get a 406).
+    // `requireValidTodoistToken` validates the token so that invalid tokens
+    // produce an HTTP 401 (per MCP spec) instead of being swallowed into a 200
+    // JSON-RPC response with isError: true.
     app.post(
         '/mcp',
         trustedHost,
+        normalizeMcpAccept,
         express.json(),
         requireValidTodoistToken({ type: 'static', apiKey: todoistApiKey, baseUrl }),
         async (req: Request, res: Response) => {

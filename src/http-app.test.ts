@@ -58,6 +58,16 @@ function request(
 
 const JSON_HEADERS = { 'content-type': 'application/json' }
 const INIT_BODY = JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} })
+const FULL_INIT_BODY = JSON.stringify({
+    jsonrpc: '2.0',
+    id: 1,
+    method: 'initialize',
+    params: {
+        protocolVersion: '2025-06-18',
+        capabilities: {},
+        clientInfo: { name: 'probe', version: '1.0' },
+    },
+})
 
 describe('createHttpApp middleware chain', () => {
     beforeEach(() => {
@@ -133,5 +143,21 @@ describe('createHttpApp middleware chain', () => {
         })
 
         expect(res.status).toBe(405)
+    })
+
+    it('patches a missing Accept header so header-less clients reach the transport instead of a 406', async () => {
+        // Mirrors Mistral's documented connector probe, which sends no Accept
+        // header; the MCP transport alone would answer that with 406.
+        mockValidate.mockResolvedValue(true)
+        const port = await startApp()
+        const res = await request(port, {
+            method: 'POST',
+            path: '/mcp',
+            headers: { ...JSON_HEADERS, host: `127.0.0.1:${port}` },
+            body: FULL_INIT_BODY,
+        })
+
+        expect(res.status).toBe(200)
+        expect(res.body).toContain('event: message')
     })
 })
