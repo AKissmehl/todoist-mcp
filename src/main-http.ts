@@ -24,10 +24,10 @@ import { isIP } from 'node:net'
  *   `Authorization: Bearer <token>` or they are rejected with 401. Strongly
  *   recommended whenever the server is reachable from other hosts, since
  *   requests otherwise run with the operator's TODOIST_API_KEY unauthenticated.
- *   /health stays unguarded for deployment probes, and an RFC 9728 Protected
- *   Resource Metadata document is served at
- *   /.well-known/oauth-protected-resource so clients can discover the
- *   authentication requirements.
+ *   /health stays unguarded for deployment probes. No RFC 9728 Protected
+ *   Resource Metadata document is served: clients (Mistral's connector) treat
+ *   the mere presence of the document as proof of OAuth and then fail — the
+ *   plain Bearer 401 challenge is the whole story.
  *
  * The /mcp endpoint validates the Host and Origin headers against this allowlist
  * before any request handling (DNS-rebinding protection). /health is exempt so

@@ -231,7 +231,12 @@ describe('createHttpApp middleware chain', () => {
             expect(JSON.parse(res.body)).toEqual({ status: 'ok' })
         })
 
-        it('serves an RFC 9728 Protected Resource Metadata document when auth is on', async () => {
+        it('serves no RFC 9728 document even when auth is on', async () => {
+            // Mistral's connector probes this path directly and treats any
+            // document there as proof of OAuth — even with an explicit empty
+            // `authorization_servers` — then fails fetching
+            // /.well-known/oauth-authorization-server. Not serving it leaves
+            // the plain Bearer challenge as the whole story.
             const port = await startApp('secret-token')
             const res = await request(port, {
                 method: 'GET',
@@ -239,12 +244,7 @@ describe('createHttpApp middleware chain', () => {
                 headers: { host: `127.0.0.1:${port}` },
             })
 
-            expect(res.status).toBe(200)
-            expect(JSON.parse(res.body)).toEqual({
-                resource: `http://127.0.0.1:${port}/mcp`,
-                authorization_servers: [],
-                bearer_methods_supported: ['header'],
-            })
+            expect(res.status).toBe(404)
         })
 
         it('serves no Protected Resource Metadata document when auth is off', async () => {

@@ -72,23 +72,6 @@ function normalizeMcpAccept(req: Request, _res: Response, next: NextFunction): v
 }
 
 /**
- * Build the request's base URL (`scheme://host`) for the RFC 9728 Protected
- * Resource Metadata document and the `resource_metadata` challenge parameter.
- *
- * The scheme honours `X-Forwarded-Proto` (set by TLS-terminating proxies such
- * as Railway's edge), defaulting to `http` for direct connections. Only the
- * first value is used, matching proxies that append per hop.
- */
-function requestBaseUrl(req: Request): string {
-    const forwardedProto = Array.isArray(req.headers['x-forwarded-proto'])
-        ? req.headers['x-forwarded-proto'][0]
-        : req.headers['x-forwarded-proto']
-    const proto = forwardedProto?.split(',')[0]?.trim() || 'http'
-    const host = req.headers.host ?? 'localhost'
-    return `${proto}://${host}`
-}
-
-/**
  * Build the Express app for the MCP HTTP server.
  *
  * The DNS-rebinding guard (`requireTrustedHost`) is scoped to the sensitive
@@ -110,33 +93,16 @@ function createHttpApp({
     // connector) treat any Protected Resource Metadata document as proof of an
     // OAuth authorization server and then fail fetching
     // /.well-known/oauth-authorization-server — this server has no OAuth, the
-    // challenge is the whole story. The metadata document itself is still
-    // served below for clients that probe for it directly.
+    // challenge is the whole story. For the same reason the metadata document
+    // itself is not served at /.well-known/oauth-protected-resource: Mistral's
+    // connector probes that path directly and enters OAuth mode even when
+    // `authorization_servers` is an explicit empty array.
     const bearerTokenGuard = bearerToken ? requireBearerToken({ token: bearerToken }) : undefined
 
     // Health check endpoint (no host guard — see above).
     app.get('/health', (_req: Request, res: Response) => {
         res.json({ status: 'ok' })
     })
-
-    // RFC 9728 Protected Resource Metadata, served only when the endpoint is
-    // actually protected (MCP_BEARER_TOKEN set) — the document describes how the
-    // resource is protected, so without auth there is nothing to advertise.
-    // Unguarded like /health: it exposes no account data and clients probe it
-    // with whatever Host they were given. `authorization_servers` is an explicit
-    // empty array: the field is OPTIONAL and omitting it means, per RFC 9728,
-    // that the resource is its own authorization server — clients (Mistral's
-    // connector does) then try to fetch /.well-known/oauth-authorization-server
-    // and fail. Empty says plainly: no OAuth, bring a bearer token.
-    if (bearerToken) {
-        app.get('/.well-known/oauth-protected-resource', (req: Request, res: Response) => {
-            res.json({
-                resource: `${requestBaseUrl(req)}/mcp`,
-                authorization_servers: [],
-                bearer_methods_supported: ['header'],
-            })
-        })
-    }
 
     // MCP endpoint - POST for requests.
     // `trustedHost` rejects untrusted Host/Origin with a cheap 403 before the
