@@ -33,7 +33,11 @@ function unauthorized(res: Response): void {
  * (see `src/main-http.ts`) to enable.
  *
  * - Missing `Authorization` header → 401.
- * - Non-Bearer scheme or wrong token → 401.
+ * - Wrong scheme, wrong token, or empty token → 401.
+ * - `Bearer <token>` (scheme case-insensitive per RFC 7235) → accepted.
+ * - `<token>` without any scheme → accepted too. Some hosted clients (Mistral's
+ *   production connector runner) send the bare token; the timing-safe token
+ *   match is the security boundary, not the scheme spelling.
  *
  * `/health` is a separate route and stays unguarded so deployment probes keep
  * working.
@@ -42,19 +46,17 @@ function requireBearerToken(options: RequireBearerTokenOptions): RequestHandler 
     return (req: Request, res: Response, next: NextFunction): void => {
         const header = req.headers.authorization
         const separatorIndex = header?.indexOf(' ') ?? -1
-        // The auth scheme is case-insensitive per RFC 7235; the token is not.
-        const scheme = separatorIndex === -1 ? header : header?.slice(0, separatorIndex)
+        const scheme = separatorIndex === -1 ? undefined : header?.slice(0, separatorIndex)
         const candidate =
-            separatorIndex === -1 ? '' : (header?.slice(separatorIndex + 1) ?? '').trim()
-        if (
-            scheme?.toLowerCase() !== 'bearer' ||
-            candidate === '' ||
-            !tokensMatch(candidate, options.token)
-        ) {
-            unauthorized(res)
+            separatorIndex === -1
+                ? (header ?? '').trim()
+                : (header?.slice(separatorIndex + 1) ?? '').trim()
+        const schemeValid = scheme === undefined || scheme.toLowerCase() === 'bearer'
+        if (schemeValid && candidate !== '' && tokensMatch(candidate, options.token)) {
+            next()
             return
         }
-        next()
+        unauthorized(res)
     }
 }
 

@@ -31,7 +31,13 @@ function logRequests(): RequestHandler {
             return
         }
         const authorization = req.headers.authorization
-        const scheme = authorization?.slice(0, authorization.indexOf(' ')) || 'none'
+        let scheme = 'none'
+        if (authorization) {
+            const separatorIndex = authorization.indexOf(' ')
+            // Never log a raw header segment: when a client sends a schemeless
+            // value, the "scheme" position holds the secret itself.
+            scheme = separatorIndex === -1 ? 'bare' : authorization.slice(0, separatorIndex)
+        }
         const fingerprint = authFingerprint(authorization)
         res.on('finish', () => {
             console.log(

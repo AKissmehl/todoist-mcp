@@ -169,6 +169,24 @@ describe('createHttpApp middleware chain', () => {
         // The token itself must never reach the log.
         expect(line).not.toContain('secret-token')
 
+        // A schemeless Authorization header logs 'bare', not the raw value —
+        // that position holds the secret itself.
+        await request(port, {
+            method: 'POST',
+            path: '/mcp',
+            headers: {
+                ...JSON_HEADERS,
+                host: `127.0.0.1:${port}`,
+                authorization: 'secret-token',
+            },
+            body: INIT_BODY,
+        })
+
+        expect(logSpy).toHaveBeenCalledTimes(2)
+        const bareLine = logSpy.mock.calls[1]?.[0] as string
+        expect(bareLine).toContain('auth=bare/')
+        expect(bareLine).not.toContain('secret-token')
+
         delete process.env.MCP_REQUEST_LOGS
         logSpy.mockRestore()
     })

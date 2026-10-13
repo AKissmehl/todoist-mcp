@@ -54,7 +54,16 @@ describe('requireBearerToken', () => {
         expect(next).toHaveBeenCalledOnce()
     })
 
-    it.each([['Bearer wrong-token'], ['Bearer '], ['Basic secret-token'], ['secret-token']])(
+    it('allows the bare token without any scheme (Mistral production runner)', () => {
+        const middleware = requireBearerToken({ token: 'secret-token' })
+        const res = createMockRes()
+        middleware(createReq({ authorization: 'secret-token' }), res, next)
+
+        expect(next).toHaveBeenCalledOnce()
+        expect(res.status).not.toHaveBeenCalled()
+    })
+
+    it.each([['Bearer wrong-token'], ['Bearer '], ['Basic secret-token'], ['wrong-bare-token']])(
         'rejects Authorization %s with 401',
         (authorization) => {
             const middleware = requireBearerToken({ token: 'secret-token' })
