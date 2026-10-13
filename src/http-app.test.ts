@@ -138,6 +138,41 @@ describe('createHttpApp middleware chain', () => {
         expect(JSON.parse(res.body)).toEqual({ status: 'ok' })
     })
 
+    it('logs one line per request when MCP_REQUEST_LOGS is set, and stays silent otherwise', async () => {
+        const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+        const port = await startApp()
+
+        await request(port, {
+            method: 'GET',
+            path: '/health',
+            headers: { host: 'health-probe.internal' },
+        })
+        expect(logSpy).not.toHaveBeenCalled()
+
+        process.env.MCP_REQUEST_LOGS = '1'
+        await request(port, {
+            method: 'POST',
+            path: '/mcp',
+            headers: {
+                ...JSON_HEADERS,
+                host: `127.0.0.1:${port}`,
+                authorization: 'Bearer secret-token',
+            },
+            body: INIT_BODY,
+        })
+
+        expect(logSpy).toHaveBeenCalledOnce()
+        const line = logSpy.mock.calls[0]?.[0] as string
+        expect(line).toContain('POST /mcp')
+        expect(line).toContain('auth=Bearer/')
+        expect(line).toContain('-> 401')
+        // The token itself must never reach the log.
+        expect(line).not.toContain('secret-token')
+
+        delete process.env.MCP_REQUEST_LOGS
+        logSpy.mockRestore()
+    })
+
     it('returns 405 for GET /mcp from a trusted Host', async () => {
         const port = await startApp()
         const res = await request(port, {

@@ -7,6 +7,7 @@ import express, {
     type Response,
 } from 'express'
 import { getMcpServer } from './mcp-server.js'
+import { logRequests } from './middleware/log-requests.js'
 import { requireBearerToken } from './middleware/require-bearer-token.js'
 import { requireTrustedHost } from './middleware/require-trusted-host.js'
 import { requireValidTodoistToken } from './middleware/require-valid-todoist-token.js'
@@ -87,6 +88,10 @@ function createHttpApp({
     bearerToken,
 }: CreateHttpAppOptions): Express {
     const app = express()
+    // Logs one line per request when MCP_REQUEST_LOGS is set — the only way to
+    // see what a hosted client (e.g. Mistral's production runner) actually
+    // sends, since Express logs nothing by default.
+    app.use(logRequests())
     const trustedHost = requireTrustedHost({ allowedHosts })
     // Plain 'Bearer' challenge, deliberately without an RFC 9728
     // resource_metadata pointer: clients that follow the pointer (Mistral's

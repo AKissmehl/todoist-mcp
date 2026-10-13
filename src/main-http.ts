@@ -28,6 +28,10 @@ import { isIP } from 'node:net'
  *   Resource Metadata document is served: clients (Mistral's connector) treat
  *   the mere presence of the document as proof of OAuth and then fail — the
  *   plain Bearer 401 challenge is the whole story.
+ * - MCP_REQUEST_LOGS: Optional. When set to any non-empty value, one line per
+ *   request is logged to stdout (method, path, Host, Authorization scheme +
+ *   truncated SHA-256 fingerprint — never the token itself, response status).
+ *   Use it in deployments to see what hosted clients actually send.
  *
  * The /mcp endpoint validates the Host and Origin headers against this allowlist
  * before any request handling (DNS-rebinding protection). /health is exempt so
